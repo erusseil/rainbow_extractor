@@ -1,0 +1,222 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "light-curve"
+dependencies = ["numpy"]
+requires-python = ">=3.7"
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Astronomy",
+]
+
+[project.optional-dependencies]
+# Packages required by some experimental features
+full = [
+    "iminuit>=2.21,<3;python_version>='3.8'",
+    "scipy",
+]
+
+# Testing environment
+test-no-bench = [
+    "pytest",
+    "markdown-pytest",
+    "pytest-benchmark",  # We need it here because we use benchmark-specific command line options
+    "pytest-subtests>=0.10",
+    # Minimal required version of iminuit does not support Python 3.7
+    "iminuit>=2.21,<3;python_version>='3.8'",
+    "numpy",
+    "scipy",
+]
+test = [
+    "light-curve[test-no-bench]",
+    "feets",
+    "joblib",
+    "pandas",
+]
+dev = [
+    "light-curve[test]",
+    "black",
+    "ruff",
+]
+
+[tool.setuptools]
+# We load these from Cargo.toml
+dynamic = [
+    "authors",
+    "description",
+    "license",
+    "readme",
+    "version",
+]
+
+[tool.maturin]
+# It asks to use Cargo.lock to make the build reproducible
+locked = true
+
+[tool.maturin.target.aarch64-apple-darwin]
+# I belive Rust requires it
+macos-deployment-target = "11.0"
+
+[tool.maturin.target.x86_64-apple-darwin]
+# Default is 10.7, but we need 10.9 for Ceres
+macos-deployment-target = "10.9"
+
+[tool.black]
+line-length = 120
+target-version = ["py37"]
+include = '\.py$'
+exclude = '''
+     /(
+         docs
+       | dist
+       | target
+       | tests/light-curve-test-data
+       | wheelhouse
+       | \.benchmarks
+       | \.idea
+       | \.mypy_cache
+       | \.pytest_cache
+       | \.tox
+       | _build
+     )/
+ '''
+
+[tool.ruff]
+line-length = 120
+select = [
+    # Pyflakes
+    "F",
+    # Pycodestyle
+    "E",
+    "W",
+    # isort
+    "I001"
+]
+exclude = [
+    "docs",
+    "dist",
+    "target",
+    "tests/light-curve-test-data",
+    "wheelhouse",
+    ".benchmarks",
+    ".idea",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".tox",
+    "_build",
+]
+target-version = "py37"
+
+[tool.ruff.per-file-ignores]
+# Unused and star imports
+"light_curve/__init__.py" = ["F401", "F403", "I001"]
+"light_curve/light_curve_ext.py" = ["F403", "F405"]
+"light_curve/light_curve_py/__init__.py" = ["F403"]
+"light_curve/light_curve_py/features/rainbow/__init__.py" = ["F403"]
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+# requires pytest-benchmark
+addopts = "-ra --import-mode=append --benchmark-min-time=0.1 --benchmark-max-time=5.0 --benchmark-sort=mean --benchmark-disable"
+testpaths = [
+    "tests/",
+    "README.md", # requires markdown-pytest
+]
+markers = [
+    "nobs: marks benchmarks for different numbers of observations (deselect with '-m \"not nobs\"')",
+    "multi: marks multiprocessing benchmarks (deselect with '-m \"not multi\"')",
+]
+
+[tool.tox]
+legacy_tox_ini = """
+[tox]
+envlist = py37,py38,py39,py310,py311
+isolated_build = True
+
+[testenv]
+extras = dev
+commands =
+    pytest README.md tests/ light_curve/
+    ruff .
+"""
+
+
+[tool.cibuildwheel]
+# Default is "pip", but it is recommended to use "build"
+build-frontend = "build"
+
+config-settings = { "build-args" = "--locked --no-default-features --features ceres-system,fftw-system,gsl,mimalloc" }
+
+# We'd like to link system FFTW, because is is usually better optimised
+# We use system Ceres because it is available as a static library in our build environment
+environment = { "PATH" = "$PATH:$HOME/.cargo/bin" }
+
+# We use our own images which include Rust, GSL and platform-optimised FFTW
+# Manylinux CPython
+manylinux-aarch64-image = "ghcr.io/light-curve/base-docker-images/manylinux2014_aarch64"
+# not supported
+#manylinux-i686-image = "ghcr.io/light-curve/base-docker-images/manylinux2014_i686"
+manylinux-ppc64le-image = "ghcr.io/light-curve/base-docker-images/manylinux2014_ppc64le"
+# not supported
+# manylinux-s390x-image = "ghcr.io/light-curve/base-docker-images/manylinux2014_s390x"
+manylinux-x86_64-image = "ghcr.io/light-curve/base-docker-images/manylinux2014_x86_64"
+# Manylinux PyPy
+manylinux-pypy_aarch64-image = "ghcr.io/light-curve/base-docker-images/manylinux2014_aarch64"
+# not supported
+#manylinux-pypy_i686-image = "ghcr.io/light-curve/base-docker-images/manylinux2014_i686"
+manylinux-pypy_x86_64-image = "ghcr.io/light-curve/base-docker-images/manylinux2014_x86_64"
+# Musllinux
+musllinux-aarch64-image = "ghcr.io/light-curve/base-docker-images/musllinux_1_1_aarch64"
+# not supported
+#musllinux-i686-image = "ghcr.io/light-curve/base-docker-images/musllinux_1_1_i686"
+# no Rust toolchain, not supported
+# musllinux-ppc64le-image = "ghcr.io/light-curve/base-docker-images/musllinux_1_1_ppc64le"
+# not supported
+# musllinux-s390x-image = "ghcr.io/light-curve/base-docker-images/musllinux_1_1_s390x"
+musllinux-x86_64-image = "ghcr.io/light-curve/base-docker-images/musllinux_1_1_x86_64"
+
+[tool.cibuildwheel.macos]
+before-all = [
+    # Install Rust
+    "curl https://sh.rustup.rs -sSf | sh -s -- --default-toolchain stable -y",
+    # Install FFTW and GSL
+    "brew install ceres-solver fftw gsl",
+]
+
+# We miss Rust installation here because it is not so simple on Windows
+[tool.cibuildwheel.windows]
+# fftw-src downloads FFTW DLLs, so fftw-sys doesn't link FFTW statically. We need to repair the wheel with these DLLs.
+before-all = [
+    "curl -o %USERPROFILE%\\Downloads\\fftw-dll64.zip https://fftw.org/pub/fftw/fftw-3.3.5-dll64.zip",
+    "powershell -command \"Expand-Archive -Path %USERPROFILE%\\Downloads\\fftw-dll64.zip -DestinationPath %USERPROFILE%\\Downloads\\fftw-dll64\"",
+]
+before-build = ["pip install delvewheel"]
+repair-wheel-command = "delvewheel repair --add-path=%USERPROFILE%\\Downloads\\fftw-dll64 -w {dest_dir} {wheel}"
+# We do not support Ceres and GSL on Windows
+config-settings = { "build-args" = "--locked --no-default-features --features fftw-source,mimalloc" }
+
+# Build with Intel MKL on Linux x86_64
+[[tool.cibuildwheel.overrides]]
+select = "*linux_x86_64"
+# We'd like to use MKL for x86_64
+config-settings = { "build-args" = "--locked --no-default-features --features ceres-system,fftw-mkl,gsl,mimalloc" }
+
+# Test
+# We skip benchmark tests, because it requires feets and its transitive
+# dependencies, which are tricky and slow to compile on marginal platforms.
+# For testing we use only platforms for which scipy binary wheels are available
+[[tool.cibuildwheel.overrides]]
+select = "cp*-manylinux_x86_64 cp*-manylinux_aarch64 cp*-macosx*"
+test-command = "pytest {package}/README.md {package}/light_curve/ {package}/tests/ --ignore {package}/tests/test_w_bench.py"
+test-extras = ["test-no-bench"]
