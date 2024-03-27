@@ -282,7 +282,7 @@ class ELAsTiCC_lightcurve(Lightcurve):
         ra = new['ra']
         dec = new['decl']
         hostgal_dist = ELAsTiCC_lightcurve.compute_gal_dist(ra, dec, meta['hostgal_ra'], meta['hostgal_dec'])
-        additional = {'hostgal_dist':hostgal_dist}
+        additional['hostgal_dist'] = hostgal_dist
         for i in ELAsTiCC_lightcurve.object_metadata:
             additional[i] = meta[i]
             
@@ -326,7 +326,7 @@ class FeatureExtractor():
              blm.LinexpBolometricTerm, blm.BazinBolometricTerm,
             blm.DoublexpBolometricTerm, tp.ConstantTemperatureTerm, tp.SigmoidTemperatureTerm]
         
-        function_names = ['exp', 'sigmoid', 'linexp', 'bazin', 'doublexp', 'constant', 'sigmoid']
+        function_names = ['exp', 'sigmoid', 'linexp', 'bazin', 'doublexp', 'constant', 'Tsigmoid']
         feature_names = []
         for i in range(len(functions)):
             feature_names += [param + '_' + function_names[i] for param in functions[i].parameter_names()]
