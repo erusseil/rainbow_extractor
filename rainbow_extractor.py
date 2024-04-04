@@ -281,8 +281,6 @@ class ELAsTiCC_lightcurve(Lightcurve):
         # ELASTICC Meta data
         ra = new['ra']
         dec = new['decl']
-        hostgal_dist = ELAsTiCC_lightcurve.compute_gal_dist(ra, dec, meta['hostgal_ra'], meta['hostgal_dec'])
-        additional['hostgal_dist'] = hostgal_dist
         for i in ELAsTiCC_lightcurve.object_metadata:
             additional[i] = meta[i]
             
@@ -290,15 +288,6 @@ class ELAsTiCC_lightcurve(Lightcurve):
         band_mask = [i in ELAsTiCC_lightcurve.keep_bands for i in cfid]
         cjd, cflux, csigflux, cfid = cjd[band_mask], cflux[band_mask], csigflux[band_mask], cfid[band_mask]
         return objectId, alertId, cjd, cflux, csigflux, cfid, non_detec_count, additional
-    
-    @staticmethod
-    def compute_gal_dist(ra, dec, galra, galdec):
-        if (galra == -999) | (galdec == -999):
-            hostgal_dist = -9
-
-        else:
-            hostgal_dist = (np.sqrt((ra - galra) ** 2 + (dec - galdec) ** 2) * 1e3)
-        return hostgal_dist
 
 
 class FeatureExtractor():
