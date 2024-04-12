@@ -70,11 +70,12 @@ class SigmoidBolometricTerm(BaseBolometricTerm):
     @staticmethod
     def value(t, t0, amplitude, rise_time):
         dt = t - t0
-
-        result = np.zeros_like(dt)
-        # To avoid numerical overflows, let's only compute the exponents not too far from t0
-        idx = dt > -100 * rise_time
-        result[idx] = amplitude / (np.exp(-dt[idx] / rise_time) + 1)
+        
+        ## To avoid numerical overflows
+        maxp = 20
+        A = -dt / rise_time
+        A = np.where(A > maxp, maxp, A)
+        result = amplitude / (np.exp(A) + 1)
 
         return result
 
@@ -85,7 +86,7 @@ class SigmoidBolometricTerm(BaseBolometricTerm):
         initial = {}
         initial["reference_time"] = t[np.argmax(m)]
         initial["amplitude"] = A
-        initial["rise_time"] = 1.0
+        initial["rise_time"] = 1.0 if m[0]<m[-1] else -1
 
         return initial
 
@@ -97,7 +98,7 @@ class SigmoidBolometricTerm(BaseBolometricTerm):
         limits = {}
         limits["reference_time"] = (np.min(t) - 10 * t_amplitude, np.max(t) + 10 * t_amplitude)
         limits["amplitude"] = (0.0, 10 * m_amplitude)
-        limits["rise_time"] = (1e-4, 10 * t_amplitude)
+        limits["rise_time"] = (-10 * t_amplitude, 10 * t_amplitude)
 
         return limits
 
@@ -203,23 +204,9 @@ class ExpBolometricTerm(BaseBolometricTerm):
 
     @staticmethod
     def initial_guesses(t, m, sigma, band):
-        A = np.max(m)
-
-        # Naive peak position from the highest point
-        t0 = t[np.argmax(m)]
-        
-        # Peak position as weighted centroid of everything above zero
-        idx = m > 0
-        
-        # Weighted centroid sigma
-        dt = np.sqrt(np.sum((t[idx] - t0) ** 2 * m[idx] / sigma[idx]) / np.sum(m[idx] / sigma[idx]))
-
-        # Empirical conversion of sigma to rise/fall times
-        rise_time = dt / 2
-
         initial = {}
-        initial["rise_time"] = rise_time
-        initial["pseudo_amplitude"] = np.exp(-t0/rise_time)
+        initial["rise_time"] = 10 if m[0] < m[-1] else -10
+        initial["pseudo_amplitude"] = 1
 
         return initial
 
@@ -228,8 +215,8 @@ class ExpBolometricTerm(BaseBolometricTerm):
         t_amplitude = np.ptp(t)
         
         limits = {}
-        limits["rise_time"] = (1e-4, 100 * t_amplitude)
-        limits["pseudo_amplitude"] = (0.0, 1000 * t_amplitude) #
+        limits["rise_time"] = (-10 * t_amplitude, 10 * t_amplitude)
+        limits["pseudo_amplitude"] = (0.0, 10 * t_amplitude) #
         
         return limits
 
@@ -257,28 +244,33 @@ class LinexpBolometricTerm(BaseBolometricTerm):
         # Coefficient to make peak amplitude equal to unity
         scale = 1/(rise_time*np.exp(-1))
 
-        dt = np.where(t<t0, dt, 0)
-        result = amplitude * scale * dt * np.exp(-dt/rise_time)
+        a = np.where((-dt/rise_time)>(-100*amplitude), (-dt/rise_time), 0)
+        sym = amplitude/abs(amplitude)
+        result = amplitude * scale * dt * np.exp(-(sym*dt)/rise_time)
         
         return result
 
     @staticmethod
     def initial_guesses(t, m, sigma, band):
         A = np.max(m)
-
-        # Naive peak position from the highest point
-        t0 = t[np.argmax(m)]
+        
+        # Compute points after or before maximum
+        peak_time = t[np.argmax(m)]
+        after = t[-1] - peak_time
+        before = peak_time - t[0]
+        
+        t0 = t[-1] if before>=after else t[0]
+        
         # Peak position as weighted centroid of everything above zero
         idx = m > 0
         # Weighted centroid sigma
         dt = np.sqrt(np.sum((t[idx] - t0) ** 2 * m[idx] / sigma[idx]) / np.sum(m[idx] / sigma[idx]))
-
         # Empirical conversion of sigma to rise/rise times
         rise_time = dt / 2
 
         initial = {}
         initial["reference_time"] = t0
-        initial["amplitude"] = A
+        initial["amplitude"] = A if before>= after else -A
         initial["rise_time"] = rise_time
 
         return initial
@@ -290,7 +282,7 @@ class LinexpBolometricTerm(BaseBolometricTerm):
 
         limits = {}
         limits["reference_time"] = (np.min(t) - 10 * t_amplitude, np.max(t) + 10 * t_amplitude)
-        limits["amplitude"] = (0.0, 10 * m_amplitude)
+        limits["amplitude"] = (-10 * m_amplitude, 10 * m_amplitude)
         limits["rise_time"] = (1e-4, 10 * t_amplitude)
 
         return limits
