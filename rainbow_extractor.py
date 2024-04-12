@@ -12,6 +12,8 @@ from seaborn import color_palette
 import os
 
 
+warnings.filterwarnings("ignore", category=rainbow_warnings.ExperimentalWarning)
+
 class Lightcurve():
     
     color_palette = color_palette("Set2")
@@ -24,7 +26,7 @@ class Lightcurve():
         self.mjd = None
         self.band = None
         self.meta = None
-        self.rising = None
+        self.rising = -999
         self.biggest_band = None
         self.biggest_color = None
         self.non_detec = False
@@ -39,6 +41,42 @@ class Lightcurve():
             factor = np.max(self.flux)
             self.flux /= factor
             self.fluxerr /= factor
+            
+    @staticmethod
+    def group_days(x, rounded_mjd):
+        return np.split(x, np.where(np.diff(rounded_mjd) != 0)[0]+1)
+
+    @staticmethod
+    def quad_err(x):
+        return np.sqrt(np.sum(np.square(x)))/len(x)
+
+    def intraday_average(self):
+        new_mjd, new_flux, new_fluxerr, new_band = [], [], [], []
+
+        for b in np.unique(self.band):
+
+            submjd = self.mjd[self.band==b]
+            subflux = self.flux[self.band==b]
+            subfluxerr = self.fluxerr[self.band==b]
+
+            rounded_mjd = np.trunc(submjd)
+
+            grouped_mjd = self.group_days(submjd, rounded_mjd)
+            grouped_flux = self.group_days(subflux, rounded_mjd)
+            grouped_fluxerr = self.group_days(subfluxerr, rounded_mjd)
+
+            add_mjd = [np.mean(i) for i in grouped_mjd]
+            new_mjd += add_mjd
+            new_flux += [np.mean(i) for i in grouped_flux]
+            new_fluxerr += [self.quad_err(i) for i in grouped_fluxerr]
+            new_band += [b] * len(add_mjd)
+
+        mjd, flux, fluxerr, band = zip(*sorted(zip(new_mjd, new_flux, new_fluxerr, new_band)))
+
+        self.mjd = np.array(mjd)
+        self.flux = np.array(flux)
+        self.fluxerr = np.array(fluxerr)
+        self.band = np.array(band)
         
     def clean_nan(self):
         if len(self.flux)>0:
@@ -52,19 +90,31 @@ class Lightcurve():
             self.band = self.band[mask]
         
     def check_rising(self):
+        
         if len(self.flux)>0:
-            self.rising = True
-            # MJD must be sorted
+            # Check if the lc is purely rising or falling:
+            pure_rise, pure_fall = [], []
             for band in np.unique(self.band):
                 subflux = self.flux[self.band==band]
                 subfluxerr = self.fluxerr[self.band==band]
-                subtime = self.mjd[self.band==band]
 
-                peak, peakerr, peak_time = np.max(subflux), subfluxerr[np.argmax(subflux)], subtime[np.argmax(subflux)]
-
-                if any((subtime>peak_time) & ((subflux + subfluxerr) < (peak - peakerr))):
-                    self.rising = False
-                    break
+                if len(subflux)>1:
+                    rise = all((subflux[:-1]-subfluxerr[:-1])<(subflux[-1]+subfluxerr[-1]))
+                    fall = all((subflux[1:]-subfluxerr[1:])<(subflux[0]+subfluxerr[0]))
+                else:
+                    rise, fall = True, True
+                
+                pure_rise.append(rise)
+                pure_fall.append(fall)
+                
+            # In the case where the light curve is flat, both pure_rise and pure fall could be true
+            # In this case we arbitratly consider the lc to be rising.
+            if all(pure_rise):
+                self.rising = 1
+            elif all(pure_fall):
+                self.rising = -1
+            else:
+                self.rising = 0
         
     def plot(self, xlim=None, ylim=None, fit=None):
         if fit != None:
@@ -87,7 +137,8 @@ class Lightcurve():
         plt.ylim(ylim)
         plt.xlabel('Time')
         plt.ylabel('Flux')
-        plt.legend()
+        if fit != None:
+            plt.legend()
         plt.show()
         
     def count_points(self):
@@ -109,6 +160,7 @@ class Lightcurve():
         self.clean_nan()
         self.normalize()
         self.time_shift() 
+        self.intraday_average()
         self.check_rising()
     
 class ZTF_lightcurve(Lightcurve):
@@ -297,10 +349,11 @@ class FeatureExtractor():
         # Use first lc as a standard for metadata requirement
         self.meta_names = list(lcs[0].iloc[0].meta)
         self.features = pd.DataFrame(-999, index=np.arange(len(lcs)),\
-                                     columns=['lc', 'type', 'bolometric', 'temperature', 'fit_error'] +\
+                                     columns=['lc', 'type', 'bolometric', 'temperature', 'rising', 'fit_error'] +\
                                      self.feature_names+self.meta_names)
         self.features['lc'] = lcs
         self.features['type'] = self.features['lc'].apply(lambda x: x.true_class)
+        
         self.fitting_functions = None
     
     def find_fitfunc(self):
@@ -339,14 +392,15 @@ class FeatureExtractor():
             else:
                 pds['bolometric'] = None
 
-            # If lightcurve is still rising limit ourselves to sigmoid fit
-            if (bband >= 4) & pds['lc'].rising:
+            # If lightcurve is purely rising or falling limit ourselves to sigmoid fit
+            if (bband >= 4) & (pds['lc'].rising != 0):
                 pds['bolometric'] = 'sigmoid'
 
             if bcol == None:
                 pds['temperature'] = 'colorless'
-            elif bcol >= 3:
-                pds['temperature'] = 'sigmoid'
+            # Because of some degeneracies between pseudo amplitude and t0 we must be limited to constant temp
+            elif (bcol >= 3) and (pds['bolometric'] != 'exp'):
+                pds['temperature'] = 'Tsigmoid'
             elif bcol >= 1:
                 pds['temperature'] = 'constant'           
                 
@@ -359,7 +413,6 @@ class FeatureExtractor():
     def fit_rainbow(self):
 
         # Filter out ExperimentalWarnings
-        warnings.filterwarnings("ignore", category=rainbow_warnings.ExperimentalWarning)
         warnings.filterwarnings("ignore", category=RuntimeWarning)
 
         self.features = self.features.apply(self.apply_rainbow, axis=1)
@@ -400,14 +453,21 @@ class FeatureExtractor():
         lc = ps['lc']        
         model = RainbowFit.from_angstrom(lc.band_wave_aa, with_baseline=False,\
                                          temperature=ps['temperature'], bolometric=ps['bolometric'])
-        params = [ps[name] for name in model.names] + [0.]
+
+            
+        function_name = [ps['bolometric'] if idx < len(model.bolometric.parameter_names()) else ps['temperature'] for            idx, name in enumerate(model.names)]
+        new_names = [name + '_' + function_name[idx] for idx, name in enumerate(model.names)]
+        params = [ps[name] for name in new_names] + [0.]
         lc.plot(xlim=xlim, ylim=ylim, fit=[model.model, params])
+        return dict(zip(new_names, params[:-1]))
         
     def check_points(self):
         self.features['lc'].apply(lambda x: x.count_points())
         
     def format_all(self):
         self.features['lc'].apply(lambda x: x.full_format())
+        self.features['rising'] = self.features['lc'].apply(lambda x: x.rising)
+        
 
         
 
