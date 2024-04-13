@@ -372,6 +372,9 @@ class FeatureExtractor():
         feature_names = []
         for i in range(len(functions)):
             feature_names += [param + '_' + function_names[i] for param in functions[i].parameter_names()]
+            
+            feature_names += ['err_' + param + '_' + function_names[i] for param in functions[i].parameter_names()]
+
         return feature_names
 
     @staticmethod
@@ -425,10 +428,16 @@ class FeatureExtractor():
                                        temperature=pds['temperature'], bolometric=pds['bolometric'])#, 
 
             try:
-                result = fitter(pds['lc'].mjd, pds['lc'].flux, sigma=pds['lc'].fluxerr, band=pds['lc'].band)
+                result, errors = fitter._eval_and_get_errors(t=pds['lc'].mjd,
+                                             m=pds['lc'].flux,
+                                             sigma=pds['lc'].fluxerr,
+                                             band=pds['lc'].band)
+
                 for idx, name in enumerate(fitter.names):
                     function_name = pds['bolometric'] if idx < len(fitter.bolometric.parameter_names()) else pds['temperature']
                     pds[name + '_' + function_name] = result[idx]
+                    pds['err_' + name + '_' + function_name] = abs(errors[idx]/result[idx])
+
 
                 pds['fit_error'] = result[-1]
                 return pds
@@ -457,9 +466,14 @@ class FeatureExtractor():
             
         function_name = [ps['bolometric'] if idx < len(model.bolometric.parameter_names()) else ps['temperature'] for            idx, name in enumerate(model.names)]
         new_names = [name + '_' + function_name[idx] for idx, name in enumerate(model.names)]
+        
+        err_names = ['err_' + name + '_' + function_name[idx] for idx, name in enumerate(model.names)]
+
         params = [ps[name] for name in new_names] + [0.]
+        errors = [ps[name] for name in err_names]
+        
         lc.plot(xlim=xlim, ylim=ylim, fit=[model.model, params])
-        return dict(zip(new_names, params[:-1]))
+        return dict(zip(new_names, params[:-1])), dict(zip(err_names, errors))
         
     def check_points(self):
         self.features['lc'].apply(lambda x: x.count_points())
