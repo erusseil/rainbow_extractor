@@ -49,34 +49,41 @@ class Lightcurve():
     @staticmethod
     def quad_err(x):
         return np.sqrt(np.sum(np.square(x)))/len(x)
-
+    
+    @staticmethod
+    def weighted_mean(x, xerr):
+        weights = 1/xerr
+        return (weights*x).sum()/weights.sum()
+        
     def intraday_average(self):
-        new_mjd, new_flux, new_fluxerr, new_band = [], [], [], []
+        
+        if len(self.mjd)>0:
+            new_mjd, new_flux, new_fluxerr, new_band = [], [], [], []
 
-        for b in np.unique(self.band):
+            for b in np.unique(self.band):
 
-            submjd = self.mjd[self.band==b]
-            subflux = self.flux[self.band==b]
-            subfluxerr = self.fluxerr[self.band==b]
+                submjd = self.mjd[self.band==b]
+                subflux = self.flux[self.band==b]
+                subfluxerr = self.fluxerr[self.band==b]
 
-            rounded_mjd = np.trunc(submjd)
+                rounded_mjd = np.trunc(submjd)
 
-            grouped_mjd = self.group_days(submjd, rounded_mjd)
-            grouped_flux = self.group_days(subflux, rounded_mjd)
-            grouped_fluxerr = self.group_days(subfluxerr, rounded_mjd)
+                grouped_mjd = self.group_days(submjd, rounded_mjd)
+                grouped_flux = self.group_days(subflux, rounded_mjd)
+                grouped_fluxerr = self.group_days(subfluxerr, rounded_mjd)
 
-            add_mjd = [np.mean(i) for i in grouped_mjd]
-            new_mjd += add_mjd
-            new_flux += [np.mean(i) for i in grouped_flux]
-            new_fluxerr += [self.quad_err(i) for i in grouped_fluxerr]
-            new_band += [b] * len(add_mjd)
+                add_mjd = [np.mean(i) for i in grouped_mjd]
+                new_mjd += add_mjd
+                new_flux += [self.weighted_mean(grouped_flux[i], grouped_fluxerr[i]) for i in range(len(grouped_flux))]
+                new_fluxerr += [self.quad_err(i) for i in grouped_fluxerr]
+                new_band += [b] * len(add_mjd)
 
-        mjd, flux, fluxerr, band = zip(*sorted(zip(new_mjd, new_flux, new_fluxerr, new_band)))
+            mjd, flux, fluxerr, band = zip(*sorted(zip(new_mjd, new_flux, new_fluxerr, new_band)))
 
-        self.mjd = np.array(mjd)
-        self.flux = np.array(flux)
-        self.fluxerr = np.array(fluxerr)
-        self.band = np.array(band)
+            self.mjd = np.array(mjd)
+            self.flux = np.array(flux)
+            self.fluxerr = np.array(fluxerr)
+            self.band = np.array(band)
         
     def clean_nan(self):
         if len(self.flux)>0:
